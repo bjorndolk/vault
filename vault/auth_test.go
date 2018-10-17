@@ -13,7 +13,7 @@ import (
 
 func TestAuth_ReadOnlyViewDuringMount(t *testing.T) {
 	c, _, _ := TestCoreUnsealed(t)
-	c.credentialBackends["noop"] = func(ctx context.Context, config *logical.BackendConfig) (logical.Backend, error) {
+	c.credentialBackends["test"] = func(ctx context.Context, config *logical.BackendConfig) (logical.Backend, error) {
 		err := config.StorageView.Put(ctx, &logical.StorageEntry{
 			Key:   "bar",
 			Value: []byte("baz"),
@@ -21,13 +21,15 @@ func TestAuth_ReadOnlyViewDuringMount(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), logical.ErrSetupReadOnly.Error()) {
 			t.Fatalf("expected a read-only error")
 		}
-		return &NoopBackend{}, nil
+		return &NoopBackend{
+			BackendType: logical.TypeCredential,
+		}, nil
 	}
 
 	me := &MountEntry{
 		Table: credentialTableType,
 		Path:  "foo",
-		Type:  "noop",
+		Type:  "test",
 	}
 	err := c.enableCredential(namespace.TestContext(), me)
 	if err != nil {
@@ -66,14 +68,16 @@ func TestCore_DefaultAuthTable(t *testing.T) {
 
 func TestCore_EnableCredential(t *testing.T) {
 	c, keys, _ := TestCoreUnsealed(t)
-	c.credentialBackends["noop"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
-		return &NoopBackend{}, nil
+	c.credentialBackends["test"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
+		return &NoopBackend{
+			BackendType: logical.TypeCredential,
+		}, nil
 	}
 
 	me := &MountEntry{
 		Table: credentialTableType,
 		Path:  "foo",
-		Type:  "noop",
+		Type:  "test",
 	}
 	err := c.enableCredential(namespace.TestContext(), me)
 	if err != nil {
@@ -93,8 +97,10 @@ func TestCore_EnableCredential(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
-	c2.credentialBackends["noop"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
-		return &NoopBackend{}, nil
+	c2.credentialBackends["test"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
+		return &NoopBackend{
+			BackendType: logical.TypeCredential,
+		}, nil
 	}
 	for i, key := range keys {
 		unseal, err := TestCoreUnseal(c2, key)
@@ -117,8 +123,10 @@ func TestCore_EnableCredential(t *testing.T) {
 // correctly
 func TestCore_EnableCredential_Local(t *testing.T) {
 	c, _, _ := TestCoreUnsealed(t)
-	c.credentialBackends["noop"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
-		return &NoopBackend{}, nil
+	c.credentialBackends["test"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
+		return &NoopBackend{
+			BackendType: logical.TypeCredential,
+		}, nil
 	}
 
 	c.auth = &MountTable{
@@ -126,20 +134,20 @@ func TestCore_EnableCredential_Local(t *testing.T) {
 		Entries: []*MountEntry{
 			&MountEntry{
 				Table:            credentialTableType,
-				Path:             "noop/",
-				Type:             "noop",
+				Path:             "test/",
+				Type:             "test",
 				UUID:             "abcd",
-				Accessor:         "noop-abcd",
+				Accessor:         "test-abcd",
 				BackendAwareUUID: "abcde",
 				NamespaceID:      namespace.RootNamespaceID,
 				namespace:        namespace.TestNamespace(),
 			},
 			&MountEntry{
 				Table:            credentialTableType,
-				Path:             "noop2/",
-				Type:             "noop",
+				Path:             "test2/",
+				Type:             "test",
 				UUID:             "bcde",
-				Accessor:         "noop-bcde",
+				Accessor:         "test-bcde",
 				BackendAwareUUID: "bcdea",
 				NamespaceID:      namespace.RootNamespaceID,
 				namespace:        namespace.TestNamespace(),
@@ -204,14 +212,16 @@ func TestCore_EnableCredential_Local(t *testing.T) {
 
 func TestCore_EnableCredential_twice_409(t *testing.T) {
 	c, _, _ := TestCoreUnsealed(t)
-	c.credentialBackends["noop"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
-		return &NoopBackend{}, nil
+	c.credentialBackends["test"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
+		return &NoopBackend{
+			BackendType: logical.TypeCredential,
+		}, nil
 	}
 
 	me := &MountEntry{
 		Table: credentialTableType,
 		Path:  "foo",
-		Type:  "noop",
+		Type:  "test",
 	}
 	err := c.enableCredential(namespace.TestContext(), me)
 	if err != nil {
@@ -245,8 +255,10 @@ func TestCore_EnableCredential_Token(t *testing.T) {
 
 func TestCore_DisableCredential(t *testing.T) {
 	c, keys, _ := TestCoreUnsealed(t)
-	c.credentialBackends["noop"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
-		return &NoopBackend{}, nil
+	c.credentialBackends["test"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
+		return &NoopBackend{
+			BackendType: logical.TypeCredential,
+		}, nil
 	}
 
 	err := c.disableCredential(namespace.TestContext(), "foo")
@@ -257,7 +269,7 @@ func TestCore_DisableCredential(t *testing.T) {
 	me := &MountEntry{
 		Table: credentialTableType,
 		Path:  "foo",
-		Type:  "noop",
+		Type:  "test",
 	}
 	err = c.enableCredential(namespace.TestContext(), me)
 	if err != nil {
@@ -308,17 +320,18 @@ func TestCore_DisableCredential_Protected(t *testing.T) {
 
 func TestCore_DisableCredential_Cleanup(t *testing.T) {
 	noop := &NoopBackend{
-		Login: []string{"login"},
+		Login:       []string{"login"},
+		BackendType: logical.TypeCredential,
 	}
 	c, _, _ := TestCoreUnsealed(t)
-	c.credentialBackends["noop"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
+	c.credentialBackends["test"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
 		return noop, nil
 	}
 
 	me := &MountEntry{
 		Table: credentialTableType,
 		Path:  "foo",
-		Type:  "noop",
+		Type:  "test",
 	}
 	err := c.enableCredential(namespace.TestContext(), me)
 	if err != nil {

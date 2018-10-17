@@ -315,7 +315,7 @@ func TestBackend_basic(t *testing.T) {
 	b := factory(t)
 
 	logicaltest.Test(t, logicaltest.TestCase{
-		Backend: b,
+		CredentialBackend: b,
 		Steps: []logicaltest.TestStep{
 			testAccStepConfigUrl(t),
 			// Map Scientists group (from LDAP server) with foo policy
@@ -342,7 +342,7 @@ func TestBackend_basic(t *testing.T) {
 func TestBackend_basic_noPolicies(t *testing.T) {
 	b := factory(t)
 	logicaltest.Test(t, logicaltest.TestCase{
-		Backend: b,
+		CredentialBackend: b,
 		Steps: []logicaltest.TestStep{
 			testAccStepConfigUrl(t),
 			// Create LDAP user
@@ -357,7 +357,7 @@ func TestBackend_basic_noPolicies(t *testing.T) {
 func TestBackend_basic_group_noPolicies(t *testing.T) {
 	b := factory(t)
 	logicaltest.Test(t, logicaltest.TestCase{
-		Backend: b,
+		CredentialBackend: b,
 		Steps: []logicaltest.TestStep{
 			testAccStepConfigUrl(t),
 			// Create engineers group with no policies
@@ -376,7 +376,7 @@ func TestBackend_basic_authbind(t *testing.T) {
 	b := factory(t)
 
 	logicaltest.Test(t, logicaltest.TestCase{
-		Backend: b,
+		CredentialBackend: b,
 		Steps: []logicaltest.TestStep{
 			testAccStepConfigUrlWithAuthBind(t),
 			testAccStepGroup(t, "Scientists", "foo"),
@@ -391,7 +391,7 @@ func TestBackend_basic_discover(t *testing.T) {
 	b := factory(t)
 
 	logicaltest.Test(t, logicaltest.TestCase{
-		Backend: b,
+		CredentialBackend: b,
 		Steps: []logicaltest.TestStep{
 			testAccStepConfigUrlWithDiscover(t),
 			testAccStepGroup(t, "Scientists", "foo"),
@@ -406,7 +406,7 @@ func TestBackend_basic_nogroupdn(t *testing.T) {
 	b := factory(t)
 
 	logicaltest.Test(t, logicaltest.TestCase{
-		Backend: b,
+		CredentialBackend: b,
 		Steps: []logicaltest.TestStep{
 			testAccStepConfigUrlNoGroupDN(t),
 			testAccStepGroup(t, "Scientists", "foo"),
@@ -421,7 +421,7 @@ func TestBackend_groupCrud(t *testing.T) {
 	b := factory(t)
 
 	logicaltest.Test(t, logicaltest.TestCase{
-		Backend: b,
+		CredentialBackend: b,
 		Steps: []logicaltest.TestStep{
 			testAccStepGroup(t, "g1", "foo"),
 			testAccStepReadGroup(t, "g1", "foo"),
@@ -438,16 +438,18 @@ func TestBackend_configDefaultsAfterUpdate(t *testing.T) {
 	b := factory(t)
 
 	logicaltest.Test(t, logicaltest.TestCase{
-		Backend: b,
+		CredentialBackend: b,
 		Steps: []logicaltest.TestStep{
 			logicaltest.TestStep{
-				Operation: logical.UpdateOperation,
-				Path:      "config",
-				Data:      map[string]interface{}{},
+				IsAuthBackendRequest: true,
+				Operation:            logical.UpdateOperation,
+				Path:                 "config",
+				Data:                 map[string]interface{}{},
 			},
 			logicaltest.TestStep{
-				Operation: logical.ReadOperation,
-				Path:      "config",
+				IsAuthBackendRequest: true,
+				Operation:            logical.ReadOperation,
+				Path:                 "config",
 				Check: func(resp *logical.Response) error {
 					if resp == nil {
 						return fmt.Errorf("bad: %#v", resp)
@@ -484,8 +486,9 @@ func TestBackend_configDefaultsAfterUpdate(t *testing.T) {
 
 func testAccStepConfigUrl(t *testing.T) logicaltest.TestStep {
 	return logicaltest.TestStep{
-		Operation: logical.UpdateOperation,
-		Path:      "config",
+		IsAuthBackendRequest: true,
+		Operation:            logical.UpdateOperation,
+		Path:                 "config",
 		Data: map[string]interface{}{
 			// Online LDAP test server
 			// http://www.forumsys.com/tutorials/integration-how-to/ldap/online-ldap-test-server/
@@ -500,8 +503,9 @@ func testAccStepConfigUrl(t *testing.T) logicaltest.TestStep {
 
 func testAccStepConfigUrlWithAuthBind(t *testing.T) logicaltest.TestStep {
 	return logicaltest.TestStep{
-		Operation: logical.UpdateOperation,
-		Path:      "config",
+		IsAuthBackendRequest: true,
+		Operation:            logical.UpdateOperation,
+		Path:                 "config",
 		Data: map[string]interface{}{
 			// Online LDAP test server
 			// http://www.forumsys.com/tutorials/integration-how-to/ldap/online-ldap-test-server/
@@ -519,8 +523,9 @@ func testAccStepConfigUrlWithAuthBind(t *testing.T) logicaltest.TestStep {
 
 func testAccStepConfigUrlWithDiscover(t *testing.T) logicaltest.TestStep {
 	return logicaltest.TestStep{
-		Operation: logical.UpdateOperation,
-		Path:      "config",
+		IsAuthBackendRequest: true,
+		Operation:            logical.UpdateOperation,
+		Path:                 "config",
 		Data: map[string]interface{}{
 			// Online LDAP test server
 			// http://www.forumsys.com/tutorials/integration-how-to/ldap/online-ldap-test-server/
@@ -536,8 +541,9 @@ func testAccStepConfigUrlWithDiscover(t *testing.T) logicaltest.TestStep {
 
 func testAccStepConfigUrlNoGroupDN(t *testing.T) logicaltest.TestStep {
 	return logicaltest.TestStep{
-		Operation: logical.UpdateOperation,
-		Path:      "config",
+		IsAuthBackendRequest: true,
+		Operation:            logical.UpdateOperation,
+		Path:                 "config",
 		Data: map[string]interface{}{
 			// Online LDAP test server
 			// http://www.forumsys.com/tutorials/integration-how-to/ldap/online-ldap-test-server/
@@ -553,8 +559,9 @@ func testAccStepConfigUrlNoGroupDN(t *testing.T) logicaltest.TestStep {
 func testAccStepGroup(t *testing.T, group string, policies string) logicaltest.TestStep {
 	t.Logf("[testAccStepGroup] - Registering group %s, policy %s", group, policies)
 	return logicaltest.TestStep{
-		Operation: logical.UpdateOperation,
-		Path:      "groups/" + group,
+		IsAuthBackendRequest: true,
+		Operation:            logical.UpdateOperation,
+		Path:                 "groups/" + group,
 		Data: map[string]interface{}{
 			"policies": policies,
 		},
@@ -563,8 +570,9 @@ func testAccStepGroup(t *testing.T, group string, policies string) logicaltest.T
 
 func testAccStepReadGroup(t *testing.T, group string, policies string) logicaltest.TestStep {
 	return logicaltest.TestStep{
-		Operation: logical.ReadOperation,
-		Path:      "groups/" + group,
+		IsAuthBackendRequest: true,
+		Operation:            logical.ReadOperation,
+		Path:                 "groups/" + group,
 		Check: func(resp *logical.Response) error {
 			if resp == nil {
 				if policies == "" {
@@ -591,8 +599,9 @@ func testAccStepReadGroup(t *testing.T, group string, policies string) logicalte
 
 func testAccStepDeleteGroup(t *testing.T, group string) logicaltest.TestStep {
 	return logicaltest.TestStep{
-		Operation: logical.DeleteOperation,
-		Path:      "groups/" + group,
+		IsAuthBackendRequest: true,
+		Operation:            logical.DeleteOperation,
+		Path:                 "groups/" + group,
 	}
 }
 
@@ -600,7 +609,7 @@ func TestBackend_userCrud(t *testing.T) {
 	b := Backend()
 
 	logicaltest.Test(t, logicaltest.TestCase{
-		Backend: b,
+		CredentialBackend: b,
 		Steps: []logicaltest.TestStep{
 			testAccStepUser(t, "g1", "bar"),
 			testAccStepReadUser(t, "g1", "bar"),
@@ -612,8 +621,9 @@ func TestBackend_userCrud(t *testing.T) {
 
 func testAccStepUser(t *testing.T, user string, groups string) logicaltest.TestStep {
 	return logicaltest.TestStep{
-		Operation: logical.UpdateOperation,
-		Path:      "users/" + user,
+		IsAuthBackendRequest: true,
+		Operation:            logical.UpdateOperation,
+		Path:                 "users/" + user,
 		Data: map[string]interface{}{
 			"groups": groups,
 		},
@@ -622,8 +632,9 @@ func testAccStepUser(t *testing.T, user string, groups string) logicaltest.TestS
 
 func testAccStepReadUser(t *testing.T, user string, groups string) logicaltest.TestStep {
 	return logicaltest.TestStep{
-		Operation: logical.ReadOperation,
-		Path:      "users/" + user,
+		IsAuthBackendRequest: true,
+		Operation:            logical.ReadOperation,
+		Path:                 "users/" + user,
 		Check: func(resp *logical.Response) error {
 			if resp == nil {
 				if groups == "" {
@@ -650,15 +661,17 @@ func testAccStepReadUser(t *testing.T, user string, groups string) logicaltest.T
 
 func testAccStepDeleteUser(t *testing.T, user string) logicaltest.TestStep {
 	return logicaltest.TestStep{
-		Operation: logical.DeleteOperation,
-		Path:      "users/" + user,
+		IsAuthBackendRequest: true,
+		Operation:            logical.DeleteOperation,
+		Path:                 "users/" + user,
 	}
 }
 
 func testAccStepLogin(t *testing.T, user string, pass string) logicaltest.TestStep {
 	return logicaltest.TestStep{
-		Operation: logical.UpdateOperation,
-		Path:      "login/" + user,
+		IsAuthBackendRequest: true,
+		Operation:            logical.UpdateOperation,
+		Path:                 "login/" + user,
 		Data: map[string]interface{}{
 			"password": pass,
 		},
@@ -671,8 +684,9 @@ func testAccStepLogin(t *testing.T, user string, pass string) logicaltest.TestSt
 
 func testAccStepLoginNoAttachedPolicies(t *testing.T, user string, pass string) logicaltest.TestStep {
 	return logicaltest.TestStep{
-		Operation: logical.UpdateOperation,
-		Path:      "login/" + user,
+		IsAuthBackendRequest: true,
+		Operation:            logical.UpdateOperation,
+		Path:                 "login/" + user,
 		Data: map[string]interface{}{
 			"password": pass,
 		},
@@ -685,8 +699,9 @@ func testAccStepLoginNoAttachedPolicies(t *testing.T, user string, pass string) 
 
 func testAccStepLoginNoGroupDN(t *testing.T, user string, pass string) logicaltest.TestStep {
 	return logicaltest.TestStep{
-		Operation: logical.UpdateOperation,
-		Path:      "login/" + user,
+		IsAuthBackendRequest: true,
+		Operation:            logical.UpdateOperation,
+		Path:                 "login/" + user,
 		Data: map[string]interface{}{
 			"password": pass,
 		},
@@ -705,8 +720,9 @@ func testAccStepLoginNoGroupDN(t *testing.T, user string, pass string) logicalte
 
 func testAccStepGroupList(t *testing.T, groups []string) logicaltest.TestStep {
 	return logicaltest.TestStep{
-		Operation: logical.ListOperation,
-		Path:      "groups",
+		IsAuthBackendRequest: true,
+		Operation:            logical.ListOperation,
+		Path:                 "groups",
 		Check: func(resp *logical.Response) error {
 			if resp.IsError() {
 				return fmt.Errorf("got error response: %#v", *resp)
@@ -730,8 +746,9 @@ func testAccStepGroupList(t *testing.T, groups []string) logicaltest.TestStep {
 
 func testAccStepUserList(t *testing.T, users []string) logicaltest.TestStep {
 	return logicaltest.TestStep{
-		Operation: logical.ListOperation,
-		Path:      "users",
+		IsAuthBackendRequest: true,
+		Operation:            logical.ListOperation,
+		Path:                 "users",
 		Check: func(resp *logical.Response) error {
 			if resp.IsError() {
 				return fmt.Errorf("got error response: %#v", *resp)
