@@ -597,13 +597,13 @@ func TestCore_HandleRequest_NoClientToken(t *testing.T) {
 		Response: &logical.Response{},
 	}
 	c, _, root := TestCoreUnsealed(t)
-	c.logicalBackends["test"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
+	c.logicalBackends["noop"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
 		return noop, nil
 	}
 
 	// Enable the logical backend
 	req := logical.TestRequest(t, logical.UpdateOperation, "sys/mounts/foo")
-	req.Data["type"] = "test"
+	req.Data["type"] = "noop"
 	req.Data["description"] = "foo"
 	req.ClientToken = root
 	_, err := c.HandleRequest(namespace.RootContext(nil), req)
@@ -633,13 +633,13 @@ func TestCore_HandleRequest_ConnOnLogin(t *testing.T) {
 		BackendType: logical.TypeCredential,
 	}
 	c, _, root := TestCoreUnsealed(t)
-	c.credentialBackends["test"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
+	c.credentialBackends["noop"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
 		return noop, nil
 	}
 
 	// Enable the credential backend
 	req := logical.TestRequest(t, logical.UpdateOperation, "sys/auth/foo")
-	req.Data["type"] = "test"
+	req.Data["type"] = "noop"
 	req.ClientToken = root
 	_, err := c.HandleRequest(namespace.RootContext(nil), req)
 	if err != nil {
@@ -675,13 +675,13 @@ func TestCore_HandleLogin_Token(t *testing.T) {
 		BackendType: logical.TypeCredential,
 	}
 	c, _, root := TestCoreUnsealed(t)
-	c.credentialBackends["test"] = func(ctx context.Context, conf *logical.BackendConfig) (logical.Backend, error) {
+	c.credentialBackends["noop"] = func(ctx context.Context, conf *logical.BackendConfig) (logical.Backend, error) {
 		return noop, nil
 	}
 
 	// Enable the credential backend
 	req := logical.TestRequest(t, logical.UpdateOperation, "sys/auth/foo")
-	req.Data["type"] = "test"
+	req.Data["type"] = "noop"
 	req.ClientToken = root
 	_, err := c.HandleRequest(namespace.RootContext(nil), req)
 	if err != nil {
@@ -737,7 +737,7 @@ func TestCore_HandleRequest_AuditTrail(t *testing.T) {
 	// Create a noop audit backend
 	noop := &NoopAudit{}
 	c, _, root := TestCoreUnsealed(t)
-	c.auditBackends["test"] = func(ctx context.Context, config *audit.BackendConfig) (audit.Backend, error) {
+	c.auditBackends["noop"] = func(ctx context.Context, config *audit.BackendConfig) (audit.Backend, error) {
 		noop = &NoopAudit{
 			Config: config,
 		}
@@ -746,7 +746,7 @@ func TestCore_HandleRequest_AuditTrail(t *testing.T) {
 
 	// Enable the audit backend
 	req := logical.TestRequest(t, logical.UpdateOperation, "sys/audit/noop")
-	req.Data["type"] = "test"
+	req.Data["type"] = "noop"
 	req.ClientToken = root
 	resp, err := c.HandleRequest(namespace.RootContext(nil), req)
 	if err != nil {
@@ -801,7 +801,7 @@ func TestCore_HandleRequest_AuditTrail_noHMACKeys(t *testing.T) {
 	// Create a noop audit backend
 	var noop *NoopAudit
 	c, _, root := TestCoreUnsealed(t)
-	c.auditBackends["test"] = func(ctx context.Context, config *audit.BackendConfig) (audit.Backend, error) {
+	c.auditBackends["noop"] = func(ctx context.Context, config *audit.BackendConfig) (audit.Backend, error) {
 		noop = &NoopAudit{
 			Config: config,
 		}
@@ -827,7 +827,7 @@ func TestCore_HandleRequest_AuditTrail_noHMACKeys(t *testing.T) {
 
 	// Enable the audit backend
 	req = logical.TestRequest(t, logical.UpdateOperation, "sys/audit/noop")
-	req.Data["type"] = "test"
+	req.Data["type"] = "noop"
 	req.ClientToken = root
 	resp, err = c.HandleRequest(namespace.RootContext(nil), req)
 	if err != nil {
@@ -917,10 +917,10 @@ func TestCore_HandleLogin_AuditTrail(t *testing.T) {
 		BackendType: logical.TypeCredential,
 	}
 	c, _, root := TestCoreUnsealed(t)
-	c.credentialBackends["test"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
+	c.credentialBackends["noop"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
 		return noopBack, nil
 	}
-	c.auditBackends["test"] = func(ctx context.Context, config *audit.BackendConfig) (audit.Backend, error) {
+	c.auditBackends["noop"] = func(ctx context.Context, config *audit.BackendConfig) (audit.Backend, error) {
 		noop = &NoopAudit{
 			Config: config,
 		}
@@ -929,7 +929,7 @@ func TestCore_HandleLogin_AuditTrail(t *testing.T) {
 
 	// Enable the credential backend
 	req := logical.TestRequest(t, logical.UpdateOperation, "sys/auth/foo")
-	req.Data["type"] = "test"
+	req.Data["type"] = "noop"
 	req.ClientToken = root
 	_, err := c.HandleRequest(namespace.RootContext(nil), req)
 	if err != nil {
@@ -938,7 +938,7 @@ func TestCore_HandleLogin_AuditTrail(t *testing.T) {
 
 	// Enable the audit backend
 	req = logical.TestRequest(t, logical.UpdateOperation, "sys/audit/noop")
-	req.Data["type"] = "test"
+	req.Data["type"] = "noop"
 	req.ClientToken = root
 	_, err = c.HandleRequest(namespace.RootContext(nil), req)
 	if err != nil {
@@ -1778,13 +1778,13 @@ func TestCore_HandleRequest_Login_InternalData(t *testing.T) {
 	}
 
 	c, _, root := TestCoreUnsealed(t)
-	c.credentialBackends["test"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
+	c.credentialBackends["noop"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
 		return noop, nil
 	}
 
 	// Enable the credential backend
 	req := logical.TestRequest(t, logical.UpdateOperation, "sys/auth/foo")
-	req.Data["type"] = "test"
+	req.Data["type"] = "noop"
 	req.ClientToken = root
 	_, err := c.HandleRequest(namespace.RootContext(nil), req)
 	if err != nil {
@@ -1822,13 +1822,13 @@ func TestCore_HandleRequest_InternalData(t *testing.T) {
 	}
 
 	c, _, root := TestCoreUnsealed(t)
-	c.logicalBackends["test"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
+	c.logicalBackends["noop"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
 		return noop, nil
 	}
 
 	// Enable the credential backend
 	req := logical.TestRequest(t, logical.UpdateOperation, "sys/mounts/foo")
-	req.Data["type"] = "test"
+	req.Data["type"] = "noop"
 	req.ClientToken = root
 	_, err := c.HandleRequest(namespace.RootContext(nil), req)
 	if err != nil {
@@ -1866,13 +1866,13 @@ func TestCore_HandleLogin_ReturnSecret(t *testing.T) {
 		BackendType: logical.TypeCredential,
 	}
 	c, _, root := TestCoreUnsealed(t)
-	c.credentialBackends["test"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
+	c.credentialBackends["noop"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
 		return noopBack, nil
 	}
 
 	// Enable the credential backend
 	req := logical.TestRequest(t, logical.UpdateOperation, "sys/auth/foo")
-	req.Data["type"] = "test"
+	req.Data["type"] = "noop"
 	req.ClientToken = root
 	_, err := c.HandleRequest(namespace.RootContext(nil), req)
 	if err != nil {
@@ -2018,7 +2018,7 @@ func TestCore_EnableDisableCred_WithLease(t *testing.T) {
 	}
 
 	c, _, root := TestCoreUnsealed(t)
-	c.credentialBackends["test"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
+	c.credentialBackends["noop"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
 		return noopBack, nil
 	}
 
@@ -2037,7 +2037,7 @@ path "secret/*" {
 
 	// Enable the credential backend
 	req := logical.TestRequest(t, logical.UpdateOperation, "sys/auth/foo")
-	req.Data["type"] = "test"
+	req.Data["type"] = "noop"
 	req.ClientToken = root
 	_, err := c.HandleRequest(namespace.RootContext(nil), req)
 	if err != nil {
@@ -2117,13 +2117,13 @@ func TestCore_HandleRequest_MountPointType(t *testing.T) {
 		Response: &logical.Response{},
 	}
 	c, _, root := TestCoreUnsealed(t)
-	c.logicalBackends["test"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
+	c.logicalBackends["noop"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
 		return noop, nil
 	}
 
 	// Enable the logical backend
 	req := logical.TestRequest(t, logical.UpdateOperation, "sys/mounts/foo")
-	req.Data["type"] = "test"
+	req.Data["type"] = "noop"
 	req.Data["description"] = "foo"
 	req.ClientToken = root
 	_, err := c.HandleRequest(namespace.RootContext(nil), req)
@@ -2149,7 +2149,7 @@ func TestCore_HandleRequest_MountPointType(t *testing.T) {
 	if noop.Requests[0].MountPoint != "foo/" {
 		t.Fatalf("bad: %#v", noop.Requests)
 	}
-	if noop.Requests[0].MountType != "test" {
+	if noop.Requests[0].MountType != "noop" {
 		t.Fatalf("bad: %#v", noop.Requests)
 	}
 }
@@ -2250,13 +2250,13 @@ func TestCore_HandleRequest_Headers(t *testing.T) {
 	}
 
 	c, _, root := TestCoreUnsealed(t)
-	c.logicalBackends["test"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
+	c.logicalBackends["noop"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
 		return noop, nil
 	}
 
 	// Enable the backend
 	req := logical.TestRequest(t, logical.UpdateOperation, "sys/mounts/foo")
-	req.Data["type"] = "test"
+	req.Data["type"] = "noop"
 	req.ClientToken = root
 	_, err := c.HandleRequest(namespace.RootContext(nil), req)
 	if err != nil {
@@ -2323,13 +2323,13 @@ func TestCore_HandleRequest_Headers_denyList(t *testing.T) {
 	}
 
 	c, _, root := TestCoreUnsealed(t)
-	c.logicalBackends["test"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
+	c.logicalBackends["noop"] = func(context.Context, *logical.BackendConfig) (logical.Backend, error) {
 		return noop, nil
 	}
 
 	// Enable the backend
 	req := logical.TestRequest(t, logical.UpdateOperation, "sys/mounts/foo")
-	req.Data["type"] = "test"
+	req.Data["type"] = "noop"
 	req.ClientToken = root
 	_, err := c.HandleRequest(namespace.RootContext(nil), req)
 	if err != nil {
