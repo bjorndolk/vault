@@ -32,7 +32,7 @@ func TestPluginCatalog_CRUD(t *testing.T) {
 
 	expectedBuiltin := &pluginutil.PluginRunner{
 		Name:    "mysql-database-plugin",
-		Type:    "database",
+		Type:    consts.PluginTypeDatabase,
 		Builtin: true,
 	}
 	expectedBuiltin.BuiltinFactory, _ = builtinplugins.Registry.Get("mysql-database-plugin", consts.PluginTypeDatabase)
@@ -67,7 +67,7 @@ func TestPluginCatalog_CRUD(t *testing.T) {
 
 	expected := &pluginutil.PluginRunner{
 		Name:    "mysql-database-plugin",
-		Type:    "database",
+		Type:    consts.PluginTypeDatabase,
 		Command: filepath.Join(sym, filepath.Base(file.Name())),
 		Args:    []string{"--test"},
 		Env:     []string{"FOO=BAR"},
@@ -93,7 +93,7 @@ func TestPluginCatalog_CRUD(t *testing.T) {
 
 	expectedBuiltin = &pluginutil.PluginRunner{
 		Name:    "mysql-database-plugin",
-		Type:    "database",
+		Type:    consts.PluginTypeDatabase,
 		Builtin: true,
 	}
 	expectedBuiltin.BuiltinFactory, _ = builtinplugins.Registry.Get("mysql-database-plugin", consts.PluginTypeDatabase)
