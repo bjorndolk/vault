@@ -1,28 +1,47 @@
 package vault
 
 import (
+	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	log "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-uuid"
+	"github.com/hashicorp/vault/helper/namespace"
 	"github.com/hashicorp/vault/logical"
 )
+
+type HandlerFunc func(context.Context, *logical.Request) (*logical.Response, error)
 
 type NoopBackend struct {
 	sync.Mutex
 
-	Root          []string
-	Login         []string
-	Paths         []string
-	Requests      []*logical.Request
-	Response      *logical.Response
-	Invalidations []string
+	Root            []string
+	Login           []string
+	Paths           []string
+	Requests        []*logical.Request
+	Response        *logical.Response
+	RequestHandler  HandlerFunc
+	Invalidations   []string
+	DefaultLeaseTTL time.Duration
+	MaxLeaseTTL     time.Duration
 }
 
-func (n *NoopBackend) HandleRequest(req *logical.Request) (*logical.Response, error) {
+func (n *NoopBackend) HandleRequest(ctx context.Context, req *logical.Request) (*logical.Response, error) {
+	if req.TokenEntry() != nil {
+		panic("got a non-nil TokenEntry")
+	}
+
+	var err error
+	resp := n.Response
+	if n.RequestHandler != nil {
+		resp, err = n.RequestHandler(ctx, req)
+	}
+
 	n.Lock()
 	defer n.Unlock()
 
@@ -33,10 +52,10 @@ func (n *NoopBackend) HandleRequest(req *logical.Request) (*logical.Response, er
 		return nil, fmt.Errorf("missing view")
 	}
 
-	return n.Response, nil
+	return resp, err
 }
 
-func (n *NoopBackend) HandleExistenceCheck(req *logical.Request) (bool, bool, error) {
+func (n *NoopBackend) HandleExistenceCheck(ctx context.Context, req *logical.Request) (bool, bool, error) {
 	return false, false, nil
 }
 
@@ -48,22 +67,44 @@ func (n *NoopBackend) SpecialPaths() *logical.Paths {
 }
 
 func (n *NoopBackend) System() logical.SystemView {
+	defaultLeaseTTLVal := time.Hour * 24
+	maxLeaseTTLVal := time.Hour * 24 * 32
+	if n.DefaultLeaseTTL > 0 {
+		defaultLeaseTTLVal = n.DefaultLeaseTTL
+	}
+
+	if n.MaxLeaseTTL > 0 {
+		maxLeaseTTLVal = n.MaxLeaseTTL
+	}
+
 	return logical.StaticSystemView{
-		DefaultLeaseTTLVal: time.Hour * 24,
-		MaxLeaseTTLVal:     time.Hour * 24 * 32,
+		DefaultLeaseTTLVal: defaultLeaseTTLVal,
+		MaxLeaseTTLVal:     maxLeaseTTLVal,
 	}
 }
 
-func (n *NoopBackend) Cleanup() {
+func (n *NoopBackend) Cleanup(ctx context.Context) {
 	// noop
 }
 
-func (n *NoopBackend) InvalidateKey(k string) {
+func (n *NoopBackend) InvalidateKey(ctx context.Context, k string) {
 	n.Invalidations = append(n.Invalidations, k)
 }
 
-func (n *NoopBackend) Initialize() error {
+func (n *NoopBackend) Setup(ctx context.Context, config *logical.BackendConfig) error {
 	return nil
+}
+
+func (n *NoopBackend) Logger() log.Logger {
+	return log.NewNullLogger()
+}
+
+func (n *NoopBackend) Initialize(ctx context.Context) error {
+	return nil
+}
+
+func (n *NoopBackend) Type() logical.BackendType {
+	return logical.TypeLogical
 }
 
 func TestRouter_Mount(t *testing.T) {
@@ -75,8 +116,17 @@ func TestRouter_Mount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	mountEntry := &MountEntry{
+		Path:        "prod/aws/",
+		UUID:        meUUID,
+		Accessor:    "awsaccessor",
+		NamespaceID: namespace.RootNamespaceID,
+		namespace:   namespace.TestNamespace(),
+	}
+
 	n := &NoopBackend{}
-	err = r.Mount(n, "prod/aws/", &MountEntry{Path: "prod/aws/", UUID: meUUID}, view)
+	err = r.Mount(n, "prod/aws/", mountEntry, view)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -85,28 +135,39 @@ func TestRouter_Mount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = r.Mount(n, "prod/aws/", &MountEntry{UUID: meUUID}, view)
+
+	err = r.Mount(n, "prod/aws/", &MountEntry{UUID: meUUID, NamespaceID: namespace.RootNamespaceID, namespace: namespace.TestNamespace()}, view)
 	if !strings.Contains(err.Error(), "cannot mount under existing mount") {
 		t.Fatalf("err: %v", err)
 	}
 
-	if path := r.MatchingMount("prod/aws/foo"); path != "prod/aws/" {
+	meUUID, err = uuid.GenerateUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if path := r.MatchingMount(namespace.TestContext(), "prod/aws/foo"); path != "prod/aws/" {
 		t.Fatalf("bad: %s", path)
 	}
 
-	if v := r.MatchingStorageView("prod/aws/foo"); v != view {
+	if v := r.MatchingStorageByAPIPath(namespace.TestContext(), "prod/aws/foo"); v.(*BarrierView) != view {
 		t.Fatalf("bad: %v", v)
 	}
 
-	if path := r.MatchingMount("stage/aws/foo"); path != "" {
+	if path := r.MatchingMount(namespace.TestContext(), "stage/aws/foo"); path != "" {
 		t.Fatalf("bad: %s", path)
 	}
 
-	if v := r.MatchingStorageView("stage/aws/foo"); v != nil {
+	if v := r.MatchingStorageByAPIPath(namespace.TestContext(), "stage/aws/foo"); v != nil {
 		t.Fatalf("bad: %v", v)
 	}
 
-	mount, prefix, ok := r.MatchingStoragePrefix("logical/foo")
+	mountEntryFetched := r.MatchingMountByUUID(mountEntry.UUID)
+	if mountEntryFetched == nil || !reflect.DeepEqual(mountEntry, mountEntryFetched) {
+		t.Fatalf("failed to fetch mount entry using its ID; expected: %#v\n actual: %#v\n", mountEntry, mountEntryFetched)
+	}
+
+	_, mount, prefix, ok := r.MatchingAPIPrefixByStoragePath(namespace.TestContext(), "logical/foo")
 	if !ok {
 		t.Fatalf("missing storage prefix")
 	}
@@ -117,7 +178,114 @@ func TestRouter_Mount(t *testing.T) {
 	req := &logical.Request{
 		Path: "prod/aws/foo",
 	}
-	resp, err := r.Route(req)
+	req.SetTokenEntry(&logical.TokenEntry{
+		ID: "foo",
+	})
+	resp, err := r.Route(namespace.TestContext(), req)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if resp != nil {
+		t.Fatalf("bad: %v", resp)
+	}
+	if req.TokenEntry() == nil || req.TokenEntry().ID != "foo" {
+		t.Fatalf("unexpected value for token entry: %v", req.TokenEntry())
+	}
+
+	// Verify the path
+	if len(n.Paths) != 1 || n.Paths[0] != "foo" {
+		t.Fatalf("bad: %v", n.Paths)
+	}
+
+	subMountEntry := &MountEntry{
+		Path:        "prod/",
+		UUID:        meUUID,
+		Accessor:    "prodaccessor",
+		NamespaceID: namespace.RootNamespaceID,
+		namespace:   namespace.TestNamespace(),
+	}
+
+	if r.MountConflict(namespace.TestContext(), "prod/aws/") == "" {
+		t.Fatalf("bad: prod/aws/")
+	}
+
+	// No error is shown here because MountConflict is checked before Mount
+	err = r.Mount(n, "prod/", subMountEntry, view)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if r.MountConflict(namespace.TestContext(), "prod/test") == "" {
+		t.Fatalf("bad: prod/test/")
+	}
+}
+
+func TestRouter_MountCredential(t *testing.T) {
+	r := NewRouter()
+	_, barrier, _ := mockBarrier(t)
+	view := NewBarrierView(barrier, credentialBarrierPrefix)
+
+	meUUID, err := uuid.GenerateUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mountEntry := &MountEntry{
+		Path:        "aws",
+		UUID:        meUUID,
+		Accessor:    "awsaccessor",
+		NamespaceID: namespace.RootNamespaceID,
+		namespace:   namespace.TestNamespace(),
+	}
+
+	n := &NoopBackend{}
+	err = r.Mount(n, "auth/aws/", mountEntry, view)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	meUUID, err = uuid.GenerateUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = r.Mount(n, "auth/aws/", &MountEntry{UUID: meUUID, NamespaceID: namespace.RootNamespaceID, namespace: namespace.TestNamespace()}, view)
+	if !strings.Contains(err.Error(), "cannot mount under existing mount") {
+		t.Fatalf("err: %v", err)
+	}
+
+	if path := r.MatchingMount(namespace.TestContext(), "auth/aws/foo"); path != "auth/aws/" {
+		t.Fatalf("bad: %s", path)
+	}
+
+	if v := r.MatchingStorageByAPIPath(namespace.TestContext(), "auth/aws/foo"); v.(*BarrierView) != view {
+		t.Fatalf("bad: %v", v)
+	}
+
+	if path := r.MatchingMount(namespace.TestContext(), "auth/stage/aws/foo"); path != "" {
+		t.Fatalf("bad: %s", path)
+	}
+
+	if v := r.MatchingStorageByAPIPath(namespace.TestContext(), "auth/stage/aws/foo"); v != nil {
+		t.Fatalf("bad: %v", v)
+	}
+
+	mountEntryFetched := r.MatchingMountByUUID(mountEntry.UUID)
+	if mountEntryFetched == nil || !reflect.DeepEqual(mountEntry, mountEntryFetched) {
+		t.Fatalf("failed to fetch mount entry using its ID; expected: %#v\n actual: %#v\n", mountEntry, mountEntryFetched)
+	}
+
+	_, mount, prefix, ok := r.MatchingAPIPrefixByStoragePath(namespace.TestContext(), "auth/foo")
+	if !ok {
+		t.Fatalf("missing storage prefix")
+	}
+	if mount != "auth/aws" || prefix != credentialBarrierPrefix {
+		t.Fatalf("Bad: %v - %v", mount, prefix)
+	}
+
+	req := &logical.Request{
+		Path: "auth/aws/foo",
+	}
+	resp, err := r.Route(namespace.TestContext(), req)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -141,12 +309,12 @@ func TestRouter_Unmount(t *testing.T) {
 		t.Fatal(err)
 	}
 	n := &NoopBackend{}
-	err = r.Mount(n, "prod/aws/", &MountEntry{Path: "prod/aws/", UUID: meUUID}, view)
+	err = r.Mount(n, "prod/aws/", &MountEntry{Path: "prod/aws/", UUID: meUUID, Accessor: "awsaccessor", NamespaceID: namespace.RootNamespaceID, namespace: namespace.TestNamespace()}, view)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
 
-	err = r.Unmount("prod/aws/")
+	err = r.Unmount(namespace.TestContext(), "prod/aws/")
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -154,12 +322,12 @@ func TestRouter_Unmount(t *testing.T) {
 	req := &logical.Request{
 		Path: "prod/aws/foo",
 	}
-	_, err = r.Route(req)
+	_, err = r.Route(namespace.TestContext(), req)
 	if !strings.Contains(err.Error(), "unsupported path") {
 		t.Fatalf("err: %v", err)
 	}
 
-	if _, _, ok := r.MatchingStoragePrefix("logical/foo"); ok {
+	if _, _, _, ok := r.MatchingAPIPrefixByStoragePath(namespace.TestContext(), "logical/foo"); ok {
 		t.Fatalf("should not have matching storage prefix")
 	}
 }
@@ -174,19 +342,19 @@ func TestRouter_Remount(t *testing.T) {
 		t.Fatal(err)
 	}
 	n := &NoopBackend{}
-	me := &MountEntry{Path: "prod/aws/", UUID: meUUID}
+	me := &MountEntry{Path: "prod/aws/", UUID: meUUID, Accessor: "awsaccessor", NamespaceID: namespace.RootNamespaceID, namespace: namespace.TestNamespace()}
 	err = r.Mount(n, "prod/aws/", me, view)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
 
 	me.Path = "stage/aws/"
-	err = r.Remount("prod/aws/", "stage/aws/")
+	err = r.Remount(namespace.TestContext(), "prod/aws/", "stage/aws/")
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
 
-	err = r.Remount("prod/aws/", "stage/aws/")
+	err = r.Remount(namespace.TestContext(), "prod/aws/", "stage/aws/")
 	if !strings.Contains(err.Error(), "no mount at") {
 		t.Fatalf("err: %v", err)
 	}
@@ -194,7 +362,7 @@ func TestRouter_Remount(t *testing.T) {
 	req := &logical.Request{
 		Path: "prod/aws/foo",
 	}
-	_, err = r.Route(req)
+	_, err = r.Route(namespace.TestContext(), req)
 	if !strings.Contains(err.Error(), "unsupported path") {
 		t.Fatalf("err: %v", err)
 	}
@@ -202,7 +370,7 @@ func TestRouter_Remount(t *testing.T) {
 	req = &logical.Request{
 		Path: "stage/aws/foo",
 	}
-	_, err = r.Route(req)
+	_, err = r.Route(namespace.TestContext(), req)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -213,7 +381,7 @@ func TestRouter_Remount(t *testing.T) {
 	}
 
 	// Check the resolve from storage still works
-	mount, prefix, _ := r.MatchingStoragePrefix("logical/foobar")
+	_, mount, prefix, _ := r.MatchingAPIPrefixByStoragePath(namespace.TestContext(), "logical/foobar")
 	if mount != "stage/aws/" {
 		t.Fatalf("bad mount: %s", mount)
 	}
@@ -237,7 +405,7 @@ func TestRouter_RootPath(t *testing.T) {
 			"policy/*",
 		},
 	}
-	err = r.Mount(n, "prod/aws/", &MountEntry{UUID: meUUID}, view)
+	err = r.Mount(n, "prod/aws/", &MountEntry{UUID: meUUID, Accessor: "awsaccessor", NamespaceID: namespace.RootNamespaceID, namespace: namespace.TestNamespace()}, view)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -257,7 +425,7 @@ func TestRouter_RootPath(t *testing.T) {
 	}
 
 	for _, tc := range tcases {
-		out := r.RootPath(tc.path)
+		out := r.RootPath(namespace.TestContext(), tc.path)
 		if out != tc.expect {
 			t.Fatalf("bad: path: %s expect: %v got %v", tc.path, tc.expect, out)
 		}
@@ -279,7 +447,7 @@ func TestRouter_LoginPath(t *testing.T) {
 			"oauth/*",
 		},
 	}
-	err = r.Mount(n, "auth/foo/", &MountEntry{UUID: meUUID}, view)
+	err = r.Mount(n, "auth/foo/", &MountEntry{UUID: meUUID, Accessor: "authfooaccessor", NamespaceID: namespace.RootNamespaceID, namespace: namespace.TestNamespace()}, view)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -297,7 +465,7 @@ func TestRouter_LoginPath(t *testing.T) {
 	}
 
 	for _, tc := range tcases {
-		out := r.LoginPath(tc.path)
+		out := r.LoginPath(namespace.TestContext(), tc.path)
 		if out != tc.expect {
 			t.Fatalf("bad: path: %s expect: %v got %v", tc.path, tc.expect, out)
 		}
@@ -314,12 +482,12 @@ func TestRouter_Taint(t *testing.T) {
 		t.Fatal(err)
 	}
 	n := &NoopBackend{}
-	err = r.Mount(n, "prod/aws/", &MountEntry{UUID: meUUID}, view)
+	err = r.Mount(n, "prod/aws/", &MountEntry{UUID: meUUID, Accessor: "awsaccessor", NamespaceID: namespace.RootNamespaceID, namespace: namespace.TestNamespace()}, view)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
 
-	err = r.Taint("prod/aws/")
+	err = r.Taint(namespace.TestContext(), "prod/aws/")
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -328,20 +496,20 @@ func TestRouter_Taint(t *testing.T) {
 		Operation: logical.ReadOperation,
 		Path:      "prod/aws/foo",
 	}
-	_, err = r.Route(req)
+	_, err = r.Route(namespace.TestContext(), req)
 	if err.Error() != "unsupported path" {
 		t.Fatalf("err: %v", err)
 	}
 
 	// Rollback and Revoke should work
 	req.Operation = logical.RollbackOperation
-	_, err = r.Route(req)
+	_, err = r.Route(namespace.TestContext(), req)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
 
 	req.Operation = logical.RevokeOperation
-	_, err = r.Route(req)
+	_, err = r.Route(namespace.TestContext(), req)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -357,17 +525,17 @@ func TestRouter_Untaint(t *testing.T) {
 		t.Fatal(err)
 	}
 	n := &NoopBackend{}
-	err = r.Mount(n, "prod/aws/", &MountEntry{UUID: meUUID}, view)
+	err = r.Mount(n, "prod/aws/", &MountEntry{UUID: meUUID, Accessor: "awsaccessor", NamespaceID: namespace.RootNamespaceID, namespace: namespace.TestNamespace()}, view)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
 
-	err = r.Taint("prod/aws/")
+	err = r.Taint(namespace.TestContext(), "prod/aws/")
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
 
-	err = r.Untaint("prod/aws/")
+	err = r.Untaint(namespace.TestContext(), "prod/aws/")
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -376,7 +544,7 @@ func TestRouter_Untaint(t *testing.T) {
 		Operation: logical.ReadOperation,
 		Path:      "prod/aws/foo",
 	}
-	_, err = r.Route(req)
+	_, err = r.Route(namespace.TestContext(), req)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

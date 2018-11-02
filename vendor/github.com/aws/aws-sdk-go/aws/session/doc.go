@@ -124,12 +124,11 @@ file (~/.aws/config) and shared credentials file (~/.aws/credentials). Both
 files have the same format.
 
 If both config files are present the configuration from both files will be
-read. The Session will be created from  configuration values from the shared
-credentials file (~/.aws/credentials) over those in the shared credentials
-file (~/.aws/config).
+read. The Session will be created from configuration values from the shared
+credentials file (~/.aws/credentials) over those in the shared config file (~/.aws/config).
 
 Credentials are the values the SDK should use for authenticating requests with
-AWS Services. They arfrom a configuration file will need to include both
+AWS Services. They are from a configuration file will need to include both
 aws_access_key_id and aws_secret_access_key must be provided together in the
 same file to be considered valid. The values will be ignored if not a complete
 group. aws_session_token is an optional field that can be provided if both of

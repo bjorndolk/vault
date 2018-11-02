@@ -1,6 +1,7 @@
 package transit
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hashicorp/vault/helper/keysutil"
 	"github.com/hashicorp/vault/logical"
 	"github.com/hashicorp/vault/logical/framework"
 )
@@ -45,6 +47,13 @@ Defaults to "sha2-256".`,
 				Type:        framework.TypeString,
 				Description: `Algorithm to use (POST URL parameter)`,
 			},
+
+			"key_version": &framework.FieldSchema{
+				Type: framework.TypeInt,
+				Description: `The version of the key to use for generating the HMAC.
+Must be 0 (for latest) or a value greater than or equal
+to the min_encryption_version configured on the key.`,
+			},
 		},
 
 		Callbacks: map[logical.Operation]framework.OperationFunc{
@@ -56,9 +65,9 @@ Defaults to "sha2-256".`,
 	}
 }
 
-func (b *backend) pathHMACWrite(
-	req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+func (b *backend) pathHMACWrite(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	name := d.Get("name").(string)
+	ver := d.Get("key_version").(int)
 	inputB64 := d.Get("input").(string)
 	algorithm := d.Get("urlalgorithm").(string)
 	if algorithm == "" {
@@ -71,22 +80,39 @@ func (b *backend) pathHMACWrite(
 	}
 
 	// Get the policy
-	p, lock, err := b.lm.GetPolicyShared(req.Storage, name)
-	if lock != nil {
-		defer lock.RUnlock()
-	}
+	p, _, err := b.lm.GetPolicy(ctx, keysutil.PolicyRequest{
+		Storage: req.Storage,
+		Name:    name,
+	})
 	if err != nil {
 		return nil, err
 	}
 	if p == nil {
-		return logical.ErrorResponse("policy not found"), logical.ErrInvalidRequest
+		return logical.ErrorResponse("encryption key not found"), logical.ErrInvalidRequest
+	}
+	if !b.System().CachingDisabled() {
+		p.Lock(false)
 	}
 
-	key, err := p.HMACKey(p.LatestVersion)
+	switch {
+	case ver == 0:
+		// Allowed, will use latest; set explicitly here to ensure the string
+		// is generated properly
+		ver = p.LatestVersion
+	case ver == p.LatestVersion:
+		// Allowed
+	case p.MinEncryptionVersion > 0 && ver < p.MinEncryptionVersion:
+		p.Unlock()
+		return logical.ErrorResponse("cannot generate HMAC: version is too old (disallowed by policy)"), logical.ErrInvalidRequest
+	}
+
+	key, err := p.HMACKey(ver)
 	if err != nil {
+		p.Unlock()
 		return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
 	}
 	if key == nil {
+		p.Unlock()
 		return nil, fmt.Errorf("HMAC key value could not be computed")
 	}
 
@@ -101,13 +127,14 @@ func (b *backend) pathHMACWrite(
 	case "sha2-512":
 		hf = hmac.New(sha512.New, key)
 	default:
+		p.Unlock()
 		return logical.ErrorResponse(fmt.Sprintf("unsupported algorithm %s", algorithm)), nil
 	}
 	hf.Write(input)
 	retBytes := hf.Sum(nil)
 
 	retStr := base64.StdEncoding.EncodeToString(retBytes)
-	retStr = fmt.Sprintf("vault:v%s:%s", strconv.Itoa(p.LatestVersion), retStr)
+	retStr = fmt.Sprintf("vault:v%s:%s", strconv.Itoa(ver), retStr)
 
 	// Generate the response
 	resp := &logical.Response{
@@ -115,12 +142,12 @@ func (b *backend) pathHMACWrite(
 			"hmac": retStr,
 		},
 	}
+
+	p.Unlock()
 	return resp, nil
 }
 
-func (b *backend) pathHMACVerify(
-	req *logical.Request, d *framework.FieldData, verificationHMAC string) (*logical.Response, error) {
-
+func (b *backend) pathHMACVerify(ctx context.Context, req *logical.Request, d *framework.FieldData, verificationHMAC string) (*logical.Response, error) {
 	name := d.Get("name").(string)
 	inputB64 := d.Get("input").(string)
 	algorithm := d.Get("urlalgorithm").(string)
@@ -154,30 +181,37 @@ func (b *backend) pathHMACVerify(
 	}
 
 	// Get the policy
-	p, lock, err := b.lm.GetPolicyShared(req.Storage, name)
-	if lock != nil {
-		defer lock.RUnlock()
-	}
+	p, _, err := b.lm.GetPolicy(ctx, keysutil.PolicyRequest{
+		Storage: req.Storage,
+		Name:    name,
+	})
 	if err != nil {
 		return nil, err
 	}
 	if p == nil {
-		return logical.ErrorResponse("policy not found"), logical.ErrInvalidRequest
+		return logical.ErrorResponse("encryption key not found"), logical.ErrInvalidRequest
+	}
+	if !b.System().CachingDisabled() {
+		p.Lock(false)
 	}
 
 	if ver > p.LatestVersion {
+		p.Unlock()
 		return logical.ErrorResponse("invalid HMAC: version is too new"), logical.ErrInvalidRequest
 	}
 
 	if p.MinDecryptionVersion > 0 && ver < p.MinDecryptionVersion {
+		p.Unlock()
 		return logical.ErrorResponse("cannot verify HMAC: version is too old (disallowed by policy)"), logical.ErrInvalidRequest
 	}
 
 	key, err := p.HMACKey(ver)
 	if err != nil {
+		p.Unlock()
 		return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
 	}
 	if key == nil {
+		p.Unlock()
 		return nil, fmt.Errorf("HMAC key value could not be computed")
 	}
 
@@ -192,11 +226,13 @@ func (b *backend) pathHMACVerify(
 	case "sha2-512":
 		hf = hmac.New(sha512.New, key)
 	default:
+		p.Unlock()
 		return logical.ErrorResponse(fmt.Sprintf("unsupported algorithm %s", algorithm)), nil
 	}
 	hf.Write(input)
 	retBytes := hf.Sum(nil)
 
+	p.Unlock()
 	return &logical.Response{
 		Data: map[string]interface{}{
 			"valid": hmac.Equal(retBytes, verBytes),

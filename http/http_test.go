@@ -6,16 +6,22 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hashicorp/go-cleanhttp"
+	"github.com/hashicorp/vault/helper/consts"
 	"github.com/hashicorp/vault/helper/jsonutil"
 )
 
 func testHttpGet(t *testing.T, token string, addr string) *http.Response {
-	t.Logf("Token is %s", token)
+	loggedToken := token
+	if len(token) == 0 {
+		loggedToken = "<empty>"
+	}
+	t.Logf("Token is %s", loggedToken)
 	return testHttpData(t, "GET", token, addr, nil, false)
 }
 
@@ -55,10 +61,15 @@ func testHttpData(t *testing.T, method string, token string, addr string, body i
 		t.Fatalf("err: %s", err)
 	}
 
+	// Get the address of the local listener in order to attach it to an Origin header.
+	// This will allow for the testing of requests that require CORS, without using a browser.
+	hostURLRegexp, _ := regexp.Compile("http[s]?://.+:[0-9]+")
+	req.Header.Set("Origin", hostURLRegexp.FindString(addr))
+
 	req.Header.Set("Content-Type", "application/json")
 
 	if len(token) != 0 {
-		req.Header.Set("X-Vault-Token", token)
+		req.Header.Set(consts.AuthHeaderName, token)
 	}
 
 	client := cleanhttp.DefaultClient()
@@ -79,8 +90,8 @@ func testHttpData(t *testing.T, method string, token string, addr string, body i
 			return nil
 		}
 		// mutate the subsequent redirect requests with the first Header
-		if token := via[0].Header.Get("X-Vault-Token"); len(token) != 0 {
-			req.Header.Set("X-Vault-Token", token)
+		if token := via[0].Header.Get(consts.AuthHeaderName); len(token) != 0 {
+			req.Header.Set(consts.AuthHeaderName, token)
 		}
 		return nil
 	}
@@ -94,6 +105,7 @@ func testHttpData(t *testing.T, method string, token string, addr string, body i
 }
 
 func testResponseStatus(t *testing.T, resp *http.Response, code int) {
+	t.Helper()
 	if resp.StatusCode != code {
 		body := new(bytes.Buffer)
 		io.Copy(body, resp.Body)

@@ -57,6 +57,38 @@ func TestStrutil_EquivalentSlices(t *testing.T) {
 	}
 }
 
+func TestStrutil_ListContainsGlob(t *testing.T) {
+	haystack := []string{
+		"dev",
+		"ops*",
+		"root/*",
+		"*-dev",
+		"_*_",
+	}
+	if StrListContainsGlob(haystack, "tubez") {
+		t.Fatalf("Value shouldn't exist")
+	}
+	if !StrListContainsGlob(haystack, "root/test") {
+		t.Fatalf("Value should exist")
+	}
+	if !StrListContainsGlob(haystack, "ops_test") {
+		t.Fatalf("Value should exist")
+	}
+	if !StrListContainsGlob(haystack, "ops") {
+		t.Fatalf("Value should exist")
+	}
+	if !StrListContainsGlob(haystack, "dev") {
+		t.Fatalf("Value should exist")
+	}
+	if !StrListContainsGlob(haystack, "test-dev") {
+		t.Fatalf("Value should exist")
+	}
+	if !StrListContainsGlob(haystack, "_test_") {
+		t.Fatalf("Value should exist")
+	}
+
+}
+
 func TestStrutil_ListContains(t *testing.T) {
 	haystack := []string{
 		"dev",
@@ -139,7 +171,7 @@ func TestStrutil_ParseKeyValues(t *testing.T) {
 	input = "key1 = value1, key2	=   "
 	err = ParseKeyValues(input, actual, ",")
 	if err == nil {
-		t.Fatal("expected an error")
+		t.Fatalf("expected an error")
 	}
 	for k, _ := range actual {
 		delete(actual, k)
@@ -148,10 +180,16 @@ func TestStrutil_ParseKeyValues(t *testing.T) {
 	input = "key1 = value1, 	=  value2 "
 	err = ParseKeyValues(input, actual, ",")
 	if err == nil {
-		t.Fatal("expected an error")
+		t.Fatalf("expected an error")
 	}
 	for k, _ := range actual {
 		delete(actual, k)
+	}
+
+	input = "key1"
+	err = ParseKeyValues(input, actual, ",")
+	if err == nil {
+		t.Fatalf("expected an error")
 	}
 }
 
@@ -311,7 +349,7 @@ func TestGlobbedStringsMatch(t *testing.T) {
 		actual := GlobbedStringsMatch(tc.item, tc.val)
 
 		if actual != tc.expect {
-			t.Fatalf("Bad testcase %#v, expected %b, got %b", tc, tc.expect, actual)
+			t.Fatalf("Bad testcase %#v, expected %t, got %t", tc, tc.expect, actual)
 		}
 	}
 }
@@ -322,5 +360,158 @@ func TestTrimStrings(t *testing.T) {
 	actual := TrimStrings(input)
 	if !reflect.DeepEqual(expected, actual) {
 		t.Fatalf("Bad TrimStrings: expected:%#v, got:%#v", expected, actual)
+	}
+}
+
+func TestStrutil_AppendIfMissing(t *testing.T) {
+	keys := []string{}
+
+	keys = AppendIfMissing(keys, "foo")
+
+	if len(keys) != 1 {
+		t.Fatalf("expected slice to be length of 1: %v", keys)
+	}
+	if keys[0] != "foo" {
+		t.Fatalf("expected slice to contain key 'foo': %v", keys)
+	}
+
+	keys = AppendIfMissing(keys, "bar")
+
+	if len(keys) != 2 {
+		t.Fatalf("expected slice to be length of 2: %v", keys)
+	}
+	if keys[0] != "foo" {
+		t.Fatalf("expected slice to contain key 'foo': %v", keys)
+	}
+	if keys[1] != "bar" {
+		t.Fatalf("expected slice to contain key 'bar': %v", keys)
+	}
+
+	keys = AppendIfMissing(keys, "foo")
+
+	if len(keys) != 2 {
+		t.Fatalf("expected slice to still be length of 2: %v", keys)
+	}
+	if keys[0] != "foo" {
+		t.Fatalf("expected slice to still contain key 'foo': %v", keys)
+	}
+	if keys[1] != "bar" {
+		t.Fatalf("expected slice to still contain key 'bar': %v", keys)
+	}
+}
+
+func TestStrUtil_RemoveDuplicates(t *testing.T) {
+	type tCase struct {
+		input     []string
+		expect    []string
+		lowercase bool
+	}
+
+	tCases := []tCase{
+		tCase{[]string{}, []string{}, false},
+		tCase{[]string{}, []string{}, true},
+		tCase{[]string{"a", "b", "a"}, []string{"a", "b"}, false},
+		tCase{[]string{"A", "b", "a"}, []string{"A", "a", "b"}, false},
+		tCase{[]string{"A", "b", "a"}, []string{"a", "b"}, true},
+	}
+
+	for _, tc := range tCases {
+		actual := RemoveDuplicates(tc.input, tc.lowercase)
+
+		if !reflect.DeepEqual(actual, tc.expect) {
+			t.Fatalf("Bad testcase %#v, expected %v, got %v", tc, tc.expect, actual)
+		}
+	}
+}
+
+func TestStrUtil_ParseStringSlice(t *testing.T) {
+	type tCase struct {
+		input  string
+		sep    string
+		expect []string
+	}
+
+	tCases := []tCase{
+		tCase{"", "", []string{}},
+		tCase{"   ", ",", []string{}},
+		tCase{",   ", ",", []string{"", ""}},
+		tCase{"a", ",", []string{"a"}},
+		tCase{" a, b,   c   ", ",", []string{"a", "b", "c"}},
+		tCase{" a; b;   c   ", ";", []string{"a", "b", "c"}},
+		tCase{" a :: b  ::   c   ", "::", []string{"a", "b", "c"}},
+	}
+
+	for _, tc := range tCases {
+		actual := ParseStringSlice(tc.input, tc.sep)
+
+		if !reflect.DeepEqual(actual, tc.expect) {
+			t.Fatalf("Bad testcase %#v, expected %v, got %v", tc, tc.expect, actual)
+		}
+	}
+}
+
+func TestStrUtil_MergeSlices(t *testing.T) {
+	res := MergeSlices([]string{"a", "c", "d"}, []string{}, []string{"c", "f", "a"}, nil, []string{"foo"})
+
+	expect := []string{"a", "c", "d", "f", "foo"}
+
+	if !reflect.DeepEqual(res, expect) {
+		t.Fatalf("expected %v, got %v", expect, res)
+	}
+}
+
+func TestDifference(t *testing.T) {
+	testCases := []struct {
+		Name           string
+		SetA           []string
+		SetB           []string
+		Lowercase      bool
+		ExpectedResult []string
+	}{
+		{
+			Name:           "case_sensitive",
+			SetA:           []string{"a", "b", "c"},
+			SetB:           []string{"b", "c"},
+			Lowercase:      false,
+			ExpectedResult: []string{"a"},
+		},
+		{
+			Name:           "case_insensitive",
+			SetA:           []string{"a", "B", "c"},
+			SetB:           []string{"b", "C"},
+			Lowercase:      true,
+			ExpectedResult: []string{"a"},
+		},
+		{
+			Name:           "no_match",
+			SetA:           []string{"a", "b", "c"},
+			SetB:           []string{"d"},
+			Lowercase:      false,
+			ExpectedResult: []string{"a", "b", "c"},
+		},
+		{
+			Name:           "empty_set_a",
+			SetA:           []string{},
+			SetB:           []string{"d", "e"},
+			Lowercase:      false,
+			ExpectedResult: []string{},
+		},
+		{
+			Name:           "empty_set_b",
+			SetA:           []string{"a", "b"},
+			SetB:           []string{},
+			Lowercase:      false,
+			ExpectedResult: []string{"a", "b"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.Name, func(t *testing.T) {
+			actualResult := Difference(tc.SetA, tc.SetB, tc.Lowercase)
+
+			if !reflect.DeepEqual(actualResult, tc.ExpectedResult) {
+				t.Fatalf("expected %v, got %v", tc.ExpectedResult, actualResult)
+			}
+		})
 	}
 }

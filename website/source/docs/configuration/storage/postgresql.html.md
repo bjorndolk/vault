@@ -1,6 +1,7 @@
 ---
 layout: "docs"
 page_title: "PostgreSQL - Storage Backends - Configuration"
+sidebar_title: "PostgreSQL"
 sidebar_current: "docs-configuration-storage-postgresql"
 description: |-
   The PostgreSQL storage backend is used to persist Vault's data in a PostgreSQL
@@ -26,7 +27,7 @@ storage "postgresql" {
 }
 ```
 
-The PostgresSQL storage backend does not automatically create the table. Here is
+The PostgreSQL storage backend does not automatically create the table. Here is
 some sample SQL to create the schema and indexes.
 
 ```sql
@@ -108,11 +109,14 @@ LANGUAGE plpgsql;
    and bypass looking for the table using the connection's [`search_path`](https://www.postgresql.org/docs/current/static/ddl-schemas.html#DDL-SCHEMAS-PATH).
 
 
+- `max_parallel` `(string: "128")` – Specifies the maximum number of concurrent
+  requests to PostgreSQL.
+
 ## `postgresql` Examples
 
 ### Custom SSL Verification
 
-This example shows connecting to a PostgresSQL cluster using full SSL
+This example shows connecting to a PostgreSQL cluster using full SSL
 verification (recommended).
 
 ```hcl

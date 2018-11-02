@@ -22,7 +22,8 @@ type UserSettings struct {
 
 	// *never* returned by RabbitMQ. Set by the client
 	// to create/update a user. MK.
-	Password string `json:"password"`
+	Password     string `json:"password,omitempty"`
+	PasswordHash string `json:"password_hash,omitempty"`
 }
 
 //
@@ -71,6 +72,25 @@ func (c *Client) GetUser(username string) (rec *UserInfo, err error) {
 // Updates information about individual user.
 func (c *Client) PutUser(username string, info UserSettings) (res *http.Response, err error) {
 	body, err := json.Marshal(info)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := newRequestWithBody(c, "PUT", "users/"+PathEscape(username), body)
+	if err != nil {
+		return nil, err
+	}
+
+	res, err = executeRequest(c, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
+}
+
+func (c *Client) PutUserWithoutPassword(username string, info UserSettings) (res *http.Response, err error) {
+	body, err := json.Marshal(UserInfo{Tags: info.Tags})
 	if err != nil {
 		return nil, err
 	}
