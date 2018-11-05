@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hashicorp/vault/physical"
-	//log "github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/errwrap"
 	log "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-uuid"
+	"github.com/hashicorp/vault/physical"
 
 	"github.com/armon/go-metrics"
 	"github.com/lib/pq"
@@ -38,6 +38,8 @@ const (
 
 // Verify PostgreSQLBackend satisfies the correct interfaces
 var _ physical.Backend = (*PostgreSQLBackend)(nil)
+var _ physical.HABackend = (*PostgreSQLBackend)(nil)
+var _ physical.Lock = (*PostgreSQLLock)(nil)
 
 // PostgreSQL Backend is a physical backend that stores data
 // within a PostgreSQL database.
@@ -54,7 +56,7 @@ type PostgreSQLBackend struct {
 	lockTableName  string
 	pollInterval   time.Duration
 	lockTTL        time.Duration
-	permitPool   *physical.PermitPool
+	permitPool     *physical.PermitPool
 }
 
 // NewPostgreSQLBackend constructs a PostgreSQL backend using the given
@@ -131,7 +133,7 @@ func NewPostgreSQLBackend(conf map[string]string, logger log.Logger) (physical.B
 
 	maxParStr, ok := conf["max_parallel"]
 	var maxParInt int
-	var err error
+
 	if ok {
 		maxParInt, err = strconv.Atoi(maxParStr)
 		if err != nil {
@@ -178,12 +180,12 @@ func NewPostgreSQLBackend(conf map[string]string, logger log.Logger) (physical.B
 		delete_query: "DELETE FROM " + quoted_table + " WHERE path = $1 AND key = $2",
 		list_query: "SELECT key FROM " + quoted_table + " WHERE path = $1" +
 			"UNION SELECT DISTINCT substring(substr(path, length($1)+1) from '^.*?/') FROM " +
-
+			quoted_table + " WHERE parent_path LIKE $1 || '%'",
 		lockSchemaName: lockSchemaName,
 		lockTableName:  lockTableName,
 		pollInterval:   pollInterval,
 		lockTTL:        lockTTL,
-			quoted_table + " WHERE parent_path LIKE $1 || '%'",
+
 		logger:     logger,
 		permitPool: physical.NewPermitPool(maxParInt),
 	}
@@ -323,7 +325,7 @@ type PostgreSQLLock struct {
 }
 
 // LockWith initializes a Postgres backend lock
-func (m *PostgreSQLBackend) LockWith(key, value string) (Lock, error) {
+func (m *PostgreSQLBackend) LockWith(key, value string) (physical.Lock, error) {
 	id, err := uuid.GenerateUUID()
 	if err != nil {
 		return nil, err
@@ -350,7 +352,7 @@ func (m *PostgreSQLBackend) LockWith(key, value string) (Lock, error) {
 }
 
 // Lock grabs a lock, or waits until it is available
-func (m *PostgreSQLLock) Lock(stopCh <-chan struct{}) (<-chan struct{}, error) {
+func (m *PostgreSQLLock) Lock(stopCh <-chan struct{}) (doneCh <-chan struct{}, retErr error) {
 	m.leaderCh = make(chan struct{})
 	m.stepDownCh = make(chan struct{}, 1)
 
